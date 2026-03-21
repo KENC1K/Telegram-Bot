@@ -23,7 +23,7 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ````
 
-2. Open the `Telegram Bot (No Token).py` file and replace the placeholders with your actual bot token and admin chat ID:
+2. Open the `main.py` file and replace the placeholders with your actual bot token and admin chat ID:
 
 ```python
 ADMIN_CHAT_ID = "your_admin_chat_id"
@@ -39,7 +39,7 @@ TOKEN = "your_telegram_bot_token"
 1. Start the bot:
 
 ```bash
-python "Telegram Bot (No Token).py"
+python "main.py"
 ```
 
 2. Open Telegram and send `/start` to the bot to begin the conversation.
