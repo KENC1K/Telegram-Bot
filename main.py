@@ -14,6 +14,37 @@ ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
 if not TOKEN or not ADMIN_CHAT_ID:
     raise ValueError("❌ TOKEN sau ADMIN_CHAT_ID")
 
+
+import json
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+from google.oauth2.service_account import Credentials
+import os
+
+# ------------------- Setup Drive -------------------
+def setup_drive():
+    service_account_info = json.loads(os.getenv("SERVICE_ACCOUNT_JSON"))
+    creds = Credentials.from_service_account_info(
+        service_account_info,
+        scopes=["https://www.googleapis.com/auth/drive.file"]
+    )
+    service = build('drive', 'v3', credentials=creds)
+    return service
+
+drive_service = setup_drive()
+FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER")
+
+# ------------------- Upload file -------------------
+def upload_to_drive(local_path, drive_filename):
+    file_metadata = {"name": drive_filename, "parents": [FOLDER_ID]}
+    media = MediaFileUpload(local_path)
+    file = drive_service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields="id"
+    ).execute()
+    return file.get("id")
+
 # States
 NAME, EMAIL, PHONE, SERVICE, DETAILS, DATA = range(6)
 
@@ -113,63 +144,53 @@ async def choose_service_from_callback(query):
     return SERVICE
 
 # -------- DATA --------
-async def collect_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def collect_data(update, context):
     user_id = update.message.from_user.id
-
-    base_folder = os.path.join(os.getenv("HOME", "."), "Data", "Clients")
-    os.makedirs(base_folder, exist_ok=True)
-
-    user_folder = os.path.join(base_folder, "UserData", f"user_{user_id}")
-    os.makedirs(user_folder, exist_ok=True)
-
-    
-    if "session" not in context.user_data:
+    session = context.user_data.get("session")
+    if not session:
         session = datetime.now().strftime("%Y-%m-%d_%H-%M")
         context.user_data["session"] = session
 
-    session_folder = os.path.join(user_folder, context.user_data["session"])
+    # Folder local temporar
+    BASE_FOLDER = os.path.join(os.getenv("HOME", "."), "Data", "Clients")
+    session_folder = os.path.join(BASE_FOLDER, f"user_{user_id}_{session}")
     os.makedirs(session_folder, exist_ok=True)
 
-    # Save info once
+    # Save info.txt
     info_path = os.path.join(session_folder, "info.txt")
-    if not os.path.exists(info_path):
-        with open(info_path, "w", encoding="utf-8") as f:
-            f.write(f"Nume: {context.user_data.get('name')}\n")
-            f.write(f"Email: {context.user_data.get('email')}\n")
-            f.write(f"Telefon: {context.user_data.get('phone')}\n")
-            f.write(f"Serviciu: {context.user_data.get('service')}\n")
+    with open(info_path, "w", encoding="utf-8") as f:
+        f.write(f"Nume: {context.user_data.get('name')}\n")
+        f.write(f"Email: {context.user_data.get('email')}\n")
+        f.write(f"Telefon: {context.user_data.get('phone')}\n")
+        f.write(f"Serviciu: {context.user_data.get('service')}\n")
 
-    # Save text
+    # Upload info.txt pe Drive
+    drive_file_id = upload_to_drive(info_path, f"user_{user_id}_{session}_info.txt")
+
+    # Text mesaje
     if update.message.text:
-        with open(os.path.join(session_folder, "data.txt"), "a", encoding="utf-8") as f:
+        data_txt_path = os.path.join(session_folder, "data.txt")
+        with open(data_txt_path, "a", encoding="utf-8") as f:
             f.write(update.message.text + "\n")
+        upload_to_drive(data_txt_path, f"user_{user_id}_{session}_data.txt")
 
-    # Save photo
+    # Poze
     if update.message.photo:
         photo = update.message.photo[-1]
         file = await photo.get_file()
-        await file.download_to_drive(
-            os.path.join(session_folder, f"{user_id}_{int(time.time())}.jpg")
-        )
+        local_photo_path = os.path.join(session_folder, f"{user_id}_{int(time.time())}.jpg")
+        await file.download_to_drive(local_photo_path)
+        upload_to_drive(local_photo_path, f"user_{user_id}_{session}_photo.jpg")
 
-    # Save document
+    # Documente
     if update.message.document:
-        file = await update.message.document.get_file()
-        await file.download_to_drive(
-            os.path.join(session_folder, f"{user_id}_{int(time.time())}_{update.message.document.file_name}")
-        )
+        doc = update.message.document
+        file = await doc.get_file()
+        local_doc_path = os.path.join(session_folder, f"{user_id}_{int(time.time())}_{doc.file_name}")
+        await file.download_to_drive(local_doc_path)
+        upload_to_drive(local_doc_path, f"user_{user_id}_{session}_{doc.file_name}")
 
-    keyboard = [
-        [InlineKeyboardButton("Trimite altceva", callback_data="more")],
-        [InlineKeyboardButton("Am terminat", callback_data="done")]
-    ]
-
-    await update.message.reply_text(
-        "Salvat ✅ Mai vrei să trimiți?",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-    return DATA
+    await update.message.reply_text("Datele tale au fost salvate pe Drive ✅")
 
 # -------- FINAL CALLBACK --------
 async def data_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
