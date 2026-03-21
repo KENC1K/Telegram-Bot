@@ -1,2 +1,2 @@
 #!/bin/bash
-python "Telegram Bot/main.py"
+python "main.py"
