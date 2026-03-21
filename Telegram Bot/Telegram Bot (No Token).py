@@ -8,8 +8,8 @@ from telegram.ext import (
 )
 import os
 
-ADMIN_CHAT_ID ="---"
-TOKEN = "----"
+TOKEN = os.getenv("TOKEN")
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
 
 # States
 NAME, EMAIL, PHONE, SERVICE, DETAILS, DATA = range(6)
