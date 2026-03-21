@@ -44,6 +44,3 @@ python "Telegram Bot (No Token).py"
 
 2. Open Telegram and send `/start` to the bot to begin the conversation.
 3. The bot will guide users through submitting their information and saving it locally.
-
-```
-
