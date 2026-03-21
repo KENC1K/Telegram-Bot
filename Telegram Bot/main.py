@@ -11,6 +11,9 @@ import os
 TOKEN = os.getenv("TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
 
+if not TOKEN or not ADMIN_CHAT_ID:
+    raise ValueError("❌ TOKEN sau ADMIN_CHAT_ID")
+
 # States
 NAME, EMAIL, PHONE, SERVICE, DETAILS, DATA = range(6)
 
@@ -113,7 +116,7 @@ async def choose_service_from_callback(query):
 async def collect_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
 
-    base_folder = r"E:\FiloPing\Data\Clients"
+    base_folder = os.path.join(os.getenv("HOME", "."), "Data", "Clients")
     os.makedirs(base_folder, exist_ok=True)
 
     user_folder = os.path.join(base_folder, "UserData", f"user_{user_id}")
