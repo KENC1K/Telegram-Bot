@@ -1,7 +1,0 @@
-{
-  "build": {
-    "language": "python",
-    "runtime": "python@3.11.7"
-  },
-  "start": "./start.sh"
-}
