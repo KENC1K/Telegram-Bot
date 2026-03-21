@@ -1,6 +1,3 @@
 #!/bin/bash
-# Instalează dependențele
-pip3 install --no-cache-dir -r "Telegram Bot/requirements.txt"
-
-# Rulează botul
+# rulează botul direct
 python3 "Telegram Bot/main.py"
