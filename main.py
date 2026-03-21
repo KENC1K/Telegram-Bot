@@ -10,7 +10,8 @@ from telegram.ext import (
 )
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from google.oauth2.service_account import Credentials
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
 
 # -------------------- SETTINGS --------------------
 TOKEN = os.getenv("TOKEN")
@@ -23,14 +24,17 @@ if not TOKEN or not ADMIN_CHAT_ID or not FOLDER_ID:
 # States
 NAME, EMAIL, PHONE, SERVICE, DETAILS, DATA = range(6)
 
-# -------------------- GOOGLE DRIVE --------------------
+# -------------------- GOOGLE DRIVE (OAuth) --------------------
 def setup_drive():
-    service_account_info = json.loads(os.getenv("SERVICE_ACCOUNT_JSON"))
-    creds = Credentials.from_service_account_info(
-        service_account_info,
-        scopes=["https://www.googleapis.com/auth/drive.file"]
+    creds = Credentials(
+        token=None,
+        refresh_token=os.getenv("GOOGLE_REFRESH_TOKEN"),
+        client_id=os.getenv("GOOGLE_CLIENT_ID"),
+        client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+        token_uri="https://oauth2.googleapis.com/token"
     )
-    return build('drive', 'v3', credentials=creds)
+    creds.refresh(Request())
+    return build("drive", "v3", credentials=creds)
 
 drive_service = setup_drive()
 
@@ -91,7 +95,11 @@ async def service_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     context.user_data["service"] = query.data
-    text = "Analiza simplă îți oferă o imagine rapidă." if query.data == "simple" else "Analiza + plan include pași concreți."
+    text = (
+        "Analiza simplă îți oferă o imagine rapidă și 2–3 zone unde poți economisi."
+        if query.data == "simple"
+        else "Analiza + plan include estimări mai clare, zone unde poți economisi și pași concreți pentru optimizare."
+    )
     keyboard = [
         [InlineKeyboardButton("Continuă", callback_data="continue")],
         [InlineKeyboardButton("Înapoi", callback_data="back")]
@@ -128,44 +136,51 @@ async def collect_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session = datetime.now().strftime("%Y-%m-%d_%H-%M")
         context.user_data["session"] = session
 
-    # Folder temporar local
     BASE_FOLDER = os.path.join(os.getenv("HOME", "."), "Data", "Clients")
     session_folder = os.path.join(BASE_FOLDER, f"user_{user_id}_{session}")
     os.makedirs(session_folder, exist_ok=True)
+    context.user_data["session_folder"] = session_folder
 
-    # --------- Save info.txt ---------
-    info_path = os.path.join(session_folder, "info.txt")
-    with open(info_path, "w", encoding="utf-8") as f:
-        f.write(f"Nume: {context.user_data.get('name')}\n")
-        f.write(f"Email: {context.user_data.get('email')}\n")
-        f.write(f"Telefon: {context.user_data.get('phone')}\n")
-        f.write(f"Serviciu: {context.user_data.get('service')}\n")
-    upload_to_drive(info_path, f"user_{user_id}_{session}_info.txt")
+    # Salvează info.txt o singură dată
+    if not context.user_data.get("info_saved"):
+        info_path = os.path.join(session_folder, "info.txt")
+        with open(info_path, "w", encoding="utf-8") as f:
+            f.write(f"Nume: {context.user_data.get('name')}\n")
+            f.write(f"Email: {context.user_data.get('email')}\n")
+            f.write(f"Telefon: {context.user_data.get('phone')}\n")
+            f.write(f"Serviciu: {context.user_data.get('service')}\n")
+        context.user_data["info_saved"] = True
 
-    # --------- Text ---------
+    # Salvează text cu separator timestamp
     if update.message.text:
         data_txt_path = os.path.join(session_folder, "data.txt")
+        timestamp = datetime.now().strftime("%H:%M:%S")
         with open(data_txt_path, "a", encoding="utf-8") as f:
-            f.write(update.message.text + "\n")
-        upload_to_drive(data_txt_path, f"user_{user_id}_{session}_data.txt")
+            f.write(f"[{timestamp}] {update.message.text}\n")
 
-    # --------- Photo ---------
+    # Salvează poza cu nume unic
     if update.message.photo:
         photo = update.message.photo[-1]
         file = await photo.get_file()
-        local_photo_path = os.path.join(session_folder, f"{user_id}_{int(time.time())}.jpg")
-        await file.download_to_drive(local_photo_path)
-        upload_to_drive(local_photo_path, f"user_{user_id}_{session}_photo.jpg")
+        photo_name = f"photo_{int(time.time())}.jpg"
+        await file.download_to_drive(os.path.join(session_folder, photo_name))
 
-    # --------- Document ---------
+    # Salvează document cu nume unic
     if update.message.document:
         doc = update.message.document
         file = await doc.get_file()
-        local_doc_path = os.path.join(session_folder, f"{user_id}_{int(time.time())}_{doc.file_name}")
-        await file.download_to_drive(local_doc_path)
-        upload_to_drive(local_doc_path, f"user_{user_id}_{session}_{doc.file_name}")
+        doc_name = f"{int(time.time())}_{doc.file_name}"
+        await file.download_to_drive(os.path.join(session_folder, doc_name))
 
-    await update.message.reply_text("Datele tale au fost salvate pe Drive ✅")
+    keyboard = [
+        [InlineKeyboardButton("Trimite altceva", callback_data="more")],
+        [InlineKeyboardButton("Am terminat", callback_data="done")]
+    ]
+    await update.message.reply_text(
+        "Salvat ✅ Mai vrei să trimiți?",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return DATA
 
 async def data_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -173,15 +188,30 @@ async def data_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "more":
         await query.edit_message_text("Trimite următoarele date.")
         return DATA
-    await query.edit_message_text("Mulțumim! 🙌")
+
+    await query.edit_message_text("Se încarcă pe Drive... ⏳")
     user_id = query.from_user.id
-    await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"User {user_id} a trimis date.")
+    session = context.user_data.get("session", "unknown")
+    session_folder = context.user_data.get("session_folder", "")
+
+    # Upload toate fișierele din sesiune pe Drive
+    if session_folder and os.path.isdir(session_folder):
+        for filename in os.listdir(session_folder):
+            local_path = os.path.join(session_folder, filename)
+            drive_name = f"user_{user_id}_{session}_{filename}"
+            upload_to_drive(local_path, drive_name)
+
+    await context.bot.edit_message_text(
+        chat_id=query.message.chat_id,
+        message_id=query.message.message_id,
+        text="Îți mulțumim! Vom reveni în cel mai scurt timp, procesarea poate dura 2–7 zile."
+    )
+    await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"User {user_id} a trimis date. Sesiune: {session}")
     save_to_csv(user_id, context)
     return ConversationHandler.END
 
-# --------- CSV ---------
 def save_to_csv(user_id, context):
-    path = "/tmp/clients.csv"  # fișier temporar
+    path = "/tmp/clients.csv"
     exists = os.path.isfile(path)
     with open(path, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -195,15 +225,12 @@ def save_to_csv(user_id, context):
             context.user_data.get("service"),
             datetime.now().strftime("%Y-%m-%d %H:%M")
         ])
-    # Upload CSV central pe Drive
     upload_to_drive(path, "clients.csv")
 
-# --------- CANCEL ---------
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Anulat.")
     return ConversationHandler.END
 
-# --------- MAIN ---------
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
     conv_handler = ConversationHandler(
