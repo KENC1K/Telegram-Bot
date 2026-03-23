@@ -226,6 +226,9 @@ def webhook():
     return "OK"
 
 # -------------------- BOT SETUP --------------------
+# Creează aplicația Telegram
+bot_app = Application.builder().token(TOKEN).build()
+
 def main():
     conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(handle_start_button, pattern="user_start")],
@@ -245,15 +248,18 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cancel)]
     )
+
+    # Adaugă handler-ele
     bot_app.add_handler(CommandHandler("start", start))
     bot_app.add_handler(conv_handler)
 
-    # Run webhook (Render-ready)
+    # Rulează webhook-ul pe Render
     bot_app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         webhook_url=WEBHOOK_URL
     )
+
 
 if __name__ == "__main__":
     main()
