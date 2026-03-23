@@ -2,11 +2,10 @@ import os
 import csv
 import time
 from datetime import datetime
-from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
-    ConversationHandler, CallbackQueryHandler, ContextTypes, filters
+    ContextTypes, ConversationHandler, CallbackQueryHandler, filters
 )
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -17,13 +16,11 @@ from google.auth.transport.requests import Request
 TOKEN = os.getenv("TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
 FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-PORT = int(os.environ.get("PORT", 10000))
 
-if not all([TOKEN, ADMIN_CHAT_ID, FOLDER_ID, WEBHOOK_URL]):
+if not all([TOKEN, ADMIN_CHAT_ID, FOLDER_ID]):
     raise ValueError("❌ Lipsesc variabile de mediu!")
 
-# States for ConversationHandler
+# States
 NAME, EMAIL, PHONE, SERVICE, DETAILS, DATA = range(6)
 
 # -------------------- GOOGLE DRIVE --------------------
@@ -228,6 +225,8 @@ def webhook():
 
 # -------------------- BOT SETUP --------------------
 def main():
+    bot_app = ApplicationBuilder().token(TOKEN).build()
+
     conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(handle_start_button, pattern="user_start")],
         states={
@@ -246,15 +245,12 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cancel)]
     )
+
     bot_app.add_handler(CommandHandler("start", start))
     bot_app.add_handler(conv_handler)
 
-    # Run webhook
-    bot_app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=WEBHOOK_URL
-    )
+    # Long polling direct pe VPS
+    bot_app.run_polling()
 
 if __name__ == "__main__":
     main()
