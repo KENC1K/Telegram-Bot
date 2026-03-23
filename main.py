@@ -2,16 +2,16 @@ import os
 import csv
 import time
 from datetime import datetime
+from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
-    ConversationHandler, ContextTypes, filters
+    ApplicationBuilder, CommandHandler, MessageHandler,
+    ConversationHandler, CallbackQueryHandler, ContextTypes, filters
 )
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
-from flask import Flask, request
 
 # -------------------- SETTINGS --------------------
 TOKEN = os.getenv("TOKEN")
@@ -23,7 +23,7 @@ PORT = int(os.environ.get("PORT", 10000))
 if not all([TOKEN, ADMIN_CHAT_ID, FOLDER_ID, WEBHOOK_URL]):
     raise ValueError("❌ Lipsesc variabile de mediu!")
 
-# States
+# States for ConversationHandler
 NAME, EMAIL, PHONE, SERVICE, DETAILS, DATA = range(6)
 
 # -------------------- GOOGLE DRIVE --------------------
@@ -218,6 +218,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # -------------------- FLASK WEBHOOK --------------------
 app = Flask(__name__)
+bot_app = ApplicationBuilder().token(TOKEN).build()
 
 @app.route("/", methods=["POST"])
 def webhook():
@@ -226,9 +227,6 @@ def webhook():
     return "OK"
 
 # -------------------- BOT SETUP --------------------
-# Creează aplicația Telegram
-bot_app = Application.builder().token(TOKEN).build()
-
 def main():
     conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(handle_start_button, pattern="user_start")],
@@ -248,18 +246,15 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cancel)]
     )
-
-    # Adaugă handler-ele
     bot_app.add_handler(CommandHandler("start", start))
     bot_app.add_handler(conv_handler)
 
-    # Rulează webhook-ul pe Render
+    # Run webhook
     bot_app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         webhook_url=WEBHOOK_URL
     )
-
 
 if __name__ == "__main__":
     main()
