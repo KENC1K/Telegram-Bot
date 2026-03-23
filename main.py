@@ -3,6 +3,8 @@ import csv
 import json
 import time
 from datetime import datetime
+from threading import Thread
+from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
@@ -12,6 +14,21 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
+
+# -------------------- WEB SERVER --------------------
+app_web = Flask('')
+
+@app_web.route('/')
+def home():
+    return "Bot is alive!"
+
+def run_web():
+    app_web.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run_web)
+    t.daemon = True
+    t.start()
 
 # -------------------- SETTINGS --------------------
 TOKEN = os.getenv("TOKEN")
@@ -141,7 +158,6 @@ async def collect_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
     os.makedirs(session_folder, exist_ok=True)
     context.user_data["session_folder"] = session_folder
 
-    # Salvează info.txt o singură dată
     if not context.user_data.get("info_saved"):
         info_path = os.path.join(session_folder, "info.txt")
         with open(info_path, "w", encoding="utf-8") as f:
@@ -151,21 +167,18 @@ async def collect_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f.write(f"Serviciu: {context.user_data.get('service')}\n")
         context.user_data["info_saved"] = True
 
-    # Salvează text cu separator timestamp
     if update.message.text:
         data_txt_path = os.path.join(session_folder, "data.txt")
         timestamp = datetime.now().strftime("%H:%M:%S")
         with open(data_txt_path, "a", encoding="utf-8") as f:
             f.write(f"[{timestamp}] {update.message.text}\n")
 
-    # Salvează poza cu nume unic
     if update.message.photo:
         photo = update.message.photo[-1]
         file = await photo.get_file()
         photo_name = f"photo_{int(time.time())}.jpg"
         await file.download_to_drive(os.path.join(session_folder, photo_name))
 
-    # Salvează document cu nume unic
     if update.message.document:
         doc = update.message.document
         file = await doc.get_file()
@@ -194,7 +207,6 @@ async def data_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = context.user_data.get("session", "unknown")
     session_folder = context.user_data.get("session_folder", "")
 
-    # Upload toate fișierele din sesiune pe Drive
     if session_folder and os.path.isdir(session_folder):
         for filename in os.listdir(session_folder):
             local_path = os.path.join(session_folder, filename)
@@ -253,6 +265,7 @@ def main():
     )
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv_handler)
+    keep_alive()
     app.run_polling()
 
 if __name__ == "__main__":
