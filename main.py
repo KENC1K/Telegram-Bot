@@ -4,8 +4,8 @@ import time
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler,
-    ContextTypes, ConversationHandler, CallbackQueryHandler, filters
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
+    ConversationHandler, ContextTypes, filters
 )
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -218,7 +218,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # -------------------- FLASK WEBHOOK --------------------
 app = Flask(__name__)
-bot_app = ApplicationBuilder().token(TOKEN).build()
 
 @app.route("/", methods=["POST"])
 def webhook():
@@ -248,6 +247,8 @@ def main():
     )
     bot_app.add_handler(CommandHandler("start", start))
     bot_app.add_handler(conv_handler)
+
+    # Run webhook (Render-ready)
     bot_app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
