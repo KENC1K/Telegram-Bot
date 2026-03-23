@@ -1,7 +1,6 @@
+flask>=2.2.0
 python-telegram-bot==20.7
 google-api-python-client
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
-httpx~=0.25.2
-flask==2.3.3
