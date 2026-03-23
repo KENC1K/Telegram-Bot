@@ -18,7 +18,7 @@ TOKEN = os.getenv("TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
 FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-PORT = int(os.environ.get("PORT", 10000))  # Render port
+PORT = int(os.environ.get("PORT", 10000))
 
 if not all([TOKEN, ADMIN_CHAT_ID, FOLDER_ID, WEBHOOK_URL]):
     raise ValueError("❌ Lipsesc variabile de mediu!")
@@ -220,7 +220,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = Flask(__name__)
 bot_app = ApplicationBuilder().token(TOKEN).build()
 
-@app.route(f"/", methods=["POST"])
+@app.route("/", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), bot_app.bot)
     bot_app.update_queue.put(update)
