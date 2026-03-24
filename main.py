@@ -17,8 +17,8 @@ TOKEN = os.getenv("TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
 FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER")
 
-if not all([TOKEN, ADMIN_CHAT_ID, FOLDER_ID]):
-    raise ValueError("❌ Lipsesc variabile de mediu!")
+if not TOKEN or not ADMIN_CHAT_ID or not FOLDER_ID:
+    raise ValueError("❌ TOKEN, ADMIN_CHAT_ID sau GOOGLE_DRIVE_FOLDER nu sunt setate!")
 
 # States
 NAME, EMAIL, PHONE, SERVICE, DETAILS, DATA = range(6)
@@ -186,9 +186,14 @@ async def data_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.edit_message_text(
         chat_id=query.message.chat_id,
         message_id=query.message.message_id,
-        text="Îți mulțumim! Vom reveni în cel mai scurt timp, procesarea poate dura 2–7 zile."
+        text="Îți mulțumim! Vom reveni în cel mai scurt timp, procesarea poate dura 2–5 zile."
     )
-    await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"User {user_id} a trimis date. Sesiune: {session}")
+
+    await context.bot.send_message(
+        chat_id=ADMIN_CHAT_ID,
+        text=f"User {user_id} a trimis date. Sesiune: {session}"
+    )
+
     save_to_csv(user_id, context)
     return ConversationHandler.END
 
@@ -213,19 +218,9 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Anulat.")
     return ConversationHandler.END
 
-# -------------------- FLASK WEBHOOK --------------------
-app = Flask(__name__)
-bot_app = ApplicationBuilder().token(TOKEN).build()
-
-@app.route("/", methods=["POST"])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), bot_app.bot)
-    bot_app.update_queue.put(update)
-    return "OK"
-
-# -------------------- BOT SETUP --------------------
+# -------------------- MAIN --------------------
 def main():
-    bot_app = ApplicationBuilder().token(TOKEN).build()
+    app = ApplicationBuilder().token(TOKEN).build()
 
     conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(handle_start_button, pattern="user_start")],
@@ -246,11 +241,10 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)]
     )
 
-    bot_app.add_handler(CommandHandler("start", start))
-    bot_app.add_handler(conv_handler)
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(conv_handler)
 
-    # Long polling direct pe VPS
-    bot_app.run_polling()
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
