@@ -27,6 +27,11 @@ if not all([TOKEN, ADMIN_CHAT_ID, FOLDER_ID]):
 # -------------------- STATES --------------------
 NAME, EMAIL, PHONE, SERVICE, DETAILS, DATA = range(6)
 
+# -------------------- CANCEL (FIX PRINCIPAL) --------------------
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ Conversație oprită.")
+    return ConversationHandler.END
+
 # -------------------- GOOGLE DRIVE --------------------
 def setup_drive():
     creds = Credentials(
@@ -55,24 +60,24 @@ def upload_to_drive(local_path, drive_filename):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("Start", callback_data="user_start")]]
     await update.message.reply_text(
-        "Salut! 👋\nApasă Start ca să începem analiza costurilor.\nTotul este gratuit și sigur.",
+        "Salut! 👋\nApasă Start ca să începem analiza costurilor.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 async def handle_start_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("Perfect! Hai să începem.\n\nCum se numește afacerea ta?")
+    await query.edit_message_text("Cum se numește afacerea ta?")
     return NAME
 
 async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["name"] = update.message.text
-    await update.message.reply_text("Care este email-ul tău?")
+    await update.message.reply_text("Email?")
     return EMAIL
 
 async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["email"] = update.message.text
-    await update.message.reply_text("Vrei să lași și un număr de telefon? (scrie sau /skip)")
+    await update.message.reply_text("Telefon? (/skip)")
     return PHONE
 
 async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -99,54 +104,32 @@ async def service_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     context.user_data["service"] = query.data
 
-    text = (
-        "Analiza simplă îți oferă o imagine rapidă și 2–3 zone unde poți economisi."
-        if query.data == "simple"
-        else "Analiza + plan include estimări mai clare și pași concreți pentru optimizare."
+    await query.edit_message_text(
+        "Ok. Apasă continuă ca să trimiți date.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("Continuă", callback_data="continue")]
+        ])
     )
-
-    keyboard = [
-        [InlineKeyboardButton("Continuă", callback_data="continue")],
-        [InlineKeyboardButton("Înapoi", callback_data="back")]
-    ]
-
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     return DETAILS
 
 async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if query.data == "back":
-        return await choose_service_from_callback(query)
-
     if query.data == "continue":
-        await query.edit_message_text(
-            "Trimite informații (poze, text, documente).\n\nCând ai terminat, apasă 'Am terminat'."
-        )
+        await query.edit_message_text("Trimite datele (text / poze / documente).")
         return DATA
 
-async def choose_service_from_callback(query):
-    keyboard = [
-        [InlineKeyboardButton("Analiză simplă", callback_data="simple")],
-        [InlineKeyboardButton("Analiză + plan", callback_data="plan")]
-    ]
-    await query.edit_message_text(
-        "Alege tipul de analiză:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-    return SERVICE
-
+# -------------------- DATA --------------------
 async def collect_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    session = context.user_data.get("session")
 
+    session = context.user_data.get("session")
     if not session:
         session = datetime.now().strftime("%Y-%m-%d_%H-%M")
         context.user_data["session"] = session
 
-    BASE_FOLDER = "./Data/Clients"
-    session_folder = f"{BASE_FOLDER}/user_{user_id}_{session}"
+    session_folder = f"./Data/Clients/user_{user_id}_{session}"
     os.makedirs(session_folder, exist_ok=True)
 
     context.user_data["session_folder"] = session_folder
@@ -156,22 +139,13 @@ async def collect_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f.write(f"Nume: {context.user_data.get('name')}\n")
             f.write(f"Email: {context.user_data.get('email')}\n")
             f.write(f"Telefon: {context.user_data.get('phone')}\n")
-            f.write(f"Serviciu: {context.user_data.get('service')}\n")
         context.user_data["info_saved"] = True
 
     if update.message.text:
         with open(f"{session_folder}/data.txt", "a", encoding="utf-8") as f:
-            f.write(f"[{datetime.now().strftime('%H:%M:%S')}] {update.message.text}\n")
+            f.write(update.message.text + "\n")
 
-    keyboard = [
-        [InlineKeyboardButton("Trimite altceva", callback_data="more")],
-        [InlineKeyboardButton("Am terminat", callback_data="done")]
-    ]
-
-    await update.message.reply_text(
-        "Salvat ✅ Mai vrei să trimiți?",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await update.message.reply_text("Salvat ✅ mai trimiți?")
     return DATA
 
 async def data_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -179,29 +153,22 @@ async def data_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if query.data == "more":
-        await query.edit_message_text("Trimite următoarele date.")
+        await query.edit_message_text("Trimite în continuare.")
         return DATA
 
-    await query.edit_message_text("Se încarcă pe Drive... ⏳")
+    await query.edit_message_text("Se încarcă...")
 
-    user_id = query.from_user.id
-    session = context.user_data.get("session")
     session_folder = context.user_data.get("session_folder")
 
     if session_folder and os.path.isdir(session_folder):
-        for filename in os.listdir(session_folder):
-            local_path = f"{session_folder}/{filename}"
-            upload_to_drive(local_path, f"user_{user_id}_{session}_{filename}")
+        for file in os.listdir(session_folder):
+            upload_to_drive(
+                f"{session_folder}/{file}",
+                file
+            )
 
-    await context.bot.edit_message_text(
-        chat_id=query.message.chat_id,
-        message_id=query.message.message_id,
-        text="Îți mulțumim! Vom reveni în cel mai scurt timp, procesarea poate dura 2–5 zile."
-    )
-
-    await context.bot.send_message(
-        chat_id=ADMIN_CHAT_ID,
-        text=f"User {user_id} a trimis date."
+    await query.edit_message_text(
+        "Gata! Procesarea durează 2–5 zile."
     )
 
     return ConversationHandler.END
@@ -213,17 +180,17 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(handle_start_button, pattern="user_start")],
         states={
-            NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
-            EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_email)],
+            NAME: [MessageHandler(filters.TEXT, get_name)],
+            EMAIL: [MessageHandler(filters.TEXT, get_email)],
             PHONE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, get_phone),
+                MessageHandler(filters.TEXT, get_phone),
                 CommandHandler("skip", skip_phone)
             ],
             SERVICE: [CallbackQueryHandler(service_details)],
             DETAILS: [CallbackQueryHandler(handle_details)],
             DATA: [
-                MessageHandler(filters.ALL, collect_data),
-                CallbackQueryHandler(data_callback, pattern="more|done")
+                MessageHandler(filters.TEXT | filters.PHOTO | filters.Document.ALL, collect_data),
+                CallbackQueryHandler(data_callback, pattern="^(more|done)$")
             ]
         },
         fallbacks=[CommandHandler("cancel", cancel)]
