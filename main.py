@@ -14,22 +14,26 @@ from google.auth.transport.requests import Request
 
 # -------------------- SETTINGS --------------------
 TOKEN = os.getenv("TOKEN")
-ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
 FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER")
 
-if not TOKEN or not ADMIN_CHAT_ID or not FOLDER_ID:
-    raise ValueError("❌ TOKEN, ADMIN_CHAT_ID sau GOOGLE_DRIVE_FOLDER nu sunt setate!")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_REFRESH_TOKEN = os.getenv("GOOGLE_REFRESH_TOKEN")
 
-# States
+if not all([TOKEN, ADMIN_CHAT_ID, FOLDER_ID]):
+    raise ValueError("❌ Variabilele de mediu nu sunt setate corect!")
+
+# -------------------- STATES --------------------
 NAME, EMAIL, PHONE, SERVICE, DETAILS, DATA = range(6)
 
 # -------------------- GOOGLE DRIVE --------------------
 def setup_drive():
     creds = Credentials(
         token=None,
-        refresh_token=os.getenv("GOOGLE_REFRESH_TOKEN"),
-        client_id=os.getenv("GOOGLE_CLIENT_ID"),
-        client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+        refresh_token=GOOGLE_REFRESH_TOKEN,
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
         token_uri="https://oauth2.googleapis.com/token"
     )
     creds.refresh(Request())
@@ -94,23 +98,28 @@ async def service_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     context.user_data["service"] = query.data
+
     text = (
         "Analiza simplă îți oferă o imagine rapidă și 2–3 zone unde poți economisi."
         if query.data == "simple"
-        else "Analiza + plan include estimări mai clare, zone unde poți economisi și pași concreți pentru optimizare."
+        else "Analiza + plan include estimări mai clare și pași concreți pentru optimizare."
     )
+
     keyboard = [
         [InlineKeyboardButton("Continuă", callback_data="continue")],
         [InlineKeyboardButton("Înapoi", callback_data="back")]
     ]
+
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     return DETAILS
 
 async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
     if query.data == "back":
         return await choose_service_from_callback(query)
+
     if query.data == "continue":
         await query.edit_message_text(
             "Trimite informații (poze, text, documente).\n\nCând ai terminat, apasă 'Am terminat'."
@@ -131,18 +140,19 @@ async def choose_service_from_callback(query):
 async def collect_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     session = context.user_data.get("session")
+
     if not session:
         session = datetime.now().strftime("%Y-%m-%d_%H-%M")
         context.user_data["session"] = session
 
-    BASE_FOLDER = os.path.join(os.getenv("HOME", "."), "Data", "Clients")
-    session_folder = os.path.join(BASE_FOLDER, f"user_{user_id}_{session}")
+    BASE_FOLDER = "./Data/Clients"
+    session_folder = f"{BASE_FOLDER}/user_{user_id}_{session}"
     os.makedirs(session_folder, exist_ok=True)
+
     context.user_data["session_folder"] = session_folder
 
     if not context.user_data.get("info_saved"):
-        info_path = os.path.join(session_folder, "info.txt")
-        with open(info_path, "w", encoding="utf-8") as f:
+        with open(f"{session_folder}/info.txt", "w", encoding="utf-8") as f:
             f.write(f"Nume: {context.user_data.get('name')}\n")
             f.write(f"Email: {context.user_data.get('email')}\n")
             f.write(f"Telefon: {context.user_data.get('phone')}\n")
@@ -150,15 +160,14 @@ async def collect_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["info_saved"] = True
 
     if update.message.text:
-        data_txt_path = os.path.join(session_folder, "data.txt")
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        with open(data_txt_path, "a", encoding="utf-8") as f:
-            f.write(f"[{timestamp}] {update.message.text}\n")
+        with open(f"{session_folder}/data.txt", "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now().strftime('%H:%M:%S')}] {update.message.text}\n")
 
     keyboard = [
         [InlineKeyboardButton("Trimite altceva", callback_data="more")],
         [InlineKeyboardButton("Am terminat", callback_data="done")]
     ]
+
     await update.message.reply_text(
         "Salvat ✅ Mai vrei să trimiți?",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -168,20 +177,21 @@ async def collect_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def data_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
     if query.data == "more":
         await query.edit_message_text("Trimite următoarele date.")
         return DATA
 
     await query.edit_message_text("Se încarcă pe Drive... ⏳")
+
     user_id = query.from_user.id
-    session = context.user_data.get("session", "unknown")
-    session_folder = context.user_data.get("session_folder", "")
+    session = context.user_data.get("session")
+    session_folder = context.user_data.get("session_folder")
 
     if session_folder and os.path.isdir(session_folder):
         for filename in os.listdir(session_folder):
-            local_path = os.path.join(session_folder, filename)
-            drive_name = f"user_{user_id}_{session}_{filename}"
-            upload_to_drive(local_path, drive_name)
+            local_path = f"{session_folder}/{filename}"
+            upload_to_drive(local_path, f"user_{user_id}_{session}_{filename}")
 
     await context.bot.edit_message_text(
         chat_id=query.message.chat_id,
@@ -191,31 +201,9 @@ async def data_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(
         chat_id=ADMIN_CHAT_ID,
-        text=f"User {user_id} a trimis date. Sesiune: {session}"
+        text=f"User {user_id} a trimis date."
     )
 
-    save_to_csv(user_id, context)
-    return ConversationHandler.END
-
-def save_to_csv(user_id, context):
-    path = "/tmp/clients.csv"
-    exists = os.path.isfile(path)
-    with open(path, "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        if not exists:
-            writer.writerow(["user_id", "name", "email", "phone", "service", "date"])
-        writer.writerow([
-            user_id,
-            context.user_data.get("name"),
-            context.user_data.get("email"),
-            context.user_data.get("phone"),
-            context.user_data.get("service"),
-            datetime.now().strftime("%Y-%m-%d %H:%M")
-        ])
-    upload_to_drive(path, "clients.csv")
-
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Anulat.")
     return ConversationHandler.END
 
 # -------------------- MAIN --------------------
@@ -244,6 +232,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv_handler)
 
+    print("Bot pornit...")
     app.run_polling()
 
 if __name__ == "__main__":
